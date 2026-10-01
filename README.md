@@ -160,6 +160,28 @@ the same way - nothing big is downloaded again.
    to a network. The image has a `HEALTHCHECK` on `/health`, so `docker ps` shows the container
    healthy once the model is loaded, and `GET /v1/status` says what it is running.
 
+**Docker (Linux, AMD/HIP, experimental):** the same idea, for the RX 7900 XT / XTX and the RX 9070 /
+9070 XT / Radeon AI PRO R9700 ([docs/AMD_HIP.md](docs/AMD_HIP.md)). One GPU, no images, no calibration.
+
+1. Host: Docker and the kernel's **amdgpu driver** - no ROCm install needed, the image brings its own.
+2. Build (this compiles the engine into the image with `-DSTRATA_ENABLE_HIP=ON -DSTRATA_ENABLE_CUDA=OFF`,
+   so the container never compiles):
+   `docker build -f Dockerfile.amd -t strata-amd .`
+   `docker build -f Dockerfile.amd -t strata-amd --build-arg HIP_ARCHITECTURES=gfx1100 .` builds for the
+   RX 7900 XT/XTX only (faster); `gfx1201` for the RX 9070 / 9070 XT / Radeon AI PRO R9700 only. The
+   default, `gfx1100;gfx1201`, is one binary covering both validated cards.
+3. Run (the container needs the render nodes and the memory lock the engine uses):
+   `docker run --rm --device /dev/kfd --device /dev/dri --group-add video -p 8080:8080 --ulimit memlock=-1 -v strata-data:/data strata-amd`
+
+   The same setup env vars as the NVIDIA image apply - `MODEL`, `FAMILY`, `CONTEXT`, `KV`, `LOW_RAM`,
+   `HOST`, `PORT`, `API_KEY`, `REINSTALL` - except `VISION` (the image encoder is NVIDIA-only; setup
+   turns it off itself if asked) and `GPUS`/`LAYER_SPLIT` (splitting one model across several cards is
+   NVIDIA-only for now). `-e GPU=0` picks one card, numbered the way HIP numbers them (the kernel's KFD
+   topology order, not necessarily `nvidia-smi`'s order - irrelevant here since there is no NVIDIA
+   card); `-e ROCR_VISIBLE_DEVICES=0` or `-e HIP_VISIBLE_DEVICES=0` also works, the way it does outside
+   a container. The server listens on `0.0.0.0:8080` by default; set `-e API_KEY=<secret>` before
+   exposing the port to a network.
+
 ## Using it
 
 <p align="center"><img src="docs/media/runpagoda.png" width="900" alt="The Strata app's Monitor tab next to a coding agent"><br>
