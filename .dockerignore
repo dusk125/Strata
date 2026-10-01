@@ -16,7 +16,7 @@ __pycache__/
 /packs/
 /mtp/
 /models/
-/Strata-data/
+/strata-data/
 third_party/llama.cpp/
 third_party/*.zip
 *.done
