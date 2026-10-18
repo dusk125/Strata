@@ -108,6 +108,7 @@ os.environ["LD_LIBRARY_PATH"] = os.pathsep.join([str(root / "lib"), os.environ.g
 
 setup.cmake_build(setup.ROOT, setup.ROOT / "build-hip", "strata",
     ["-DSTRATA_ENABLE_HIP=ON", "-DSTRATA_ENABLE_CUDA=OFF", "-DSTRATA_BUILD_TESTS=OFF", "-DSTRATA_PREFILL_MMQ=ON",
+     "-DSTRATA_Q6K_EXPERTS=ON", "-DSTRATA_MMQ_KQUANTS=ON",
      f"-DCMAKE_HIP_ARCHITECTURES={arch}",
      f"-DCMAKE_HIP_COMPILER={root / 'llvm' / 'bin' / 'clang++'}", f"-DCMAKE_HIP_COMPILER_ROCM_ROOT={root}",
      f"-DCMAKE_PREFIX_PATH={root}",
@@ -117,6 +118,8 @@ setup.cmake_build(setup.ROOT, setup.ROOT / "build-hip", "strata",
 eng = setup.ROOT / "engine"
 eng.mkdir(exist_ok=True)
 shutil.copy2(setup.ROOT / "build-hip" / setup.EXE, eng / setup.EXE)
+if (setup.ROOT / "build-hip" / setup.KQ_LIB).exists():  # the K-quant MMQ prompt library, as the NVIDIA image does
+    shutil.copy2(setup.ROOT / "build-hip" / setup.KQ_LIB, eng / setup.KQ_LIB)
 archs = [a.split(":")[0] for a in arch.split(";") if a.strip()]
 meta = {"source": "local-hip", "backend": "hip", "version": setup.source_version(),
         "archs": archs, "vision": "none", "lib_dirs": [str(root / "lib")],
