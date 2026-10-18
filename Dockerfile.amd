@@ -1,15 +1,17 @@
 # syntax=docker/dockerfile:1
 #
-# Strata: Qwen3.8-Flash-Next on AMD GPUs through the HIP backend (docs/AMD_HIP.md) -
-# validated on the RX 7900 XT / XTX (RDNA3, gfx1100) and the RX 9070 / 9070 XT /
-# Radeon AI PRO R9700 (RDNA4, gfx1201). This backend is experimental: one GPU,
-# no images (the vision encoder is NVIDIA-only), no calibration.
+# Strata on AMD GPUs through the HIP backend (docs/AMD_HIP.md) - validated on the
+# RX 7900 XT / XTX (RDNA3, gfx1100) and the RX 9070 / 9070 XT / Radeon AI PRO R9700
+# (RDNA4, gfx1201), run by owners on the RX 7800 XT / 7700 XT (gfx1101) and the
+# RX 9060 XT (gfx1200); the RX 7600 (gfx1102) builds by default but is unvalidated.
+# This backend is experimental: images only through the CPU encoder, no calibration.
 #
 # The engine is compiled during docker build, so the first container start only
-# downloads the model (~70 GB) and starts the server. docker build has no GPU,
-# so the HIP architecture is fixed here instead of detected: the default builds
-# one binary covering both validated cards (gfx1100;gfx1201); narrow
-# HIP_ARCHITECTURES to your card for a faster build.
+# downloads the model and starts the server. docker build has no GPU, so the HIP
+# architectures are fixed here instead of detected: the default builds one binary
+# for every RDNA3 / RDNA4 card setup.py supports; narrow HIP_ARCHITECTURES to your
+# card for a faster build, or name an unvalidated one setup.py also takes
+# (gfx1030 / gfx1031: RX 6800 / 6900 / 6700 XT; gfx1151: Strix Halo).
 #
 # Build (host needs no GPU or ROCm - the image brings its own):
 #   docker build -f Dockerfile.amd -t strata-amd .
@@ -18,20 +20,21 @@
 #
 # Run (host needs the kernel's amdgpu driver; no ROCm install needed on the host):
 #   docker run --rm \
-#     --device /dev/kfd --device /dev/dri --group-add video \
+#     --device /dev/kfd --device /dev/dri --group-add video --group-add render \
+#     --ipc=host --ulimit memlock=-1 --ulimit core=0 \
 #     -p 8080:8080 \
-#     --ulimit memlock=-1 \
 #     -v strata-data:/data \
 #     -e MODEL=IQ2_XS \
 #     strata-amd
+# --ulimit core=0: a watchdog abort otherwise writes a core file the size of the
+# engine's memory (tens of GB) into the container.
 #
 # Setup choices are env vars, read by docker-entrypoint.sh: FAMILY, MODEL, CONTEXT,
-# KV (int8 | q4_0 | k8v4), GPU (one card, numbered the way HIP numbers them - the
-# kernel's KFD topology order), LOW_RAM (auto | on | off), HOST, PORT, API_KEY.
-# VISION and GPUS/LAYER_SPLIT are the NVIDIA image's; the AMD backend has neither
-# images (setup.py turns VISION off itself, with a warning, if it is set) nor a
-# multi-GPU layer split (several AMD cards sharing one model: setup.py refuses
-# with "NVIDIA only for now" - use one card, --gpu / -e GPU=N).
+# VISION (no | cpu), KV (int8 | q4_0 | k8v4), GPU (one card, numbered the way HIP
+# numbers them - the kernel's KFD topology order) or GPUS ("1,0" or "all": a layer
+# split across several AMD cards, with LAYER_SPLIT), LOW_RAM (auto | on | off),
+# HOST, PORT, API_KEY, GGUF_DIR, RESIDENT_BUDGET_GIB, KV_STREAMING. VISION=yes (the
+# GPU image encoder) is NVIDIA-only; use VISION=cpu.
 #
 # Only the model files, the prepared pack, the MTP layer and the install config
 # live in the /data volume; the engine is part of the image. Strata loads 32-62 GB
@@ -49,28 +52,27 @@ FROM rocm/dev-ubuntu-24.04:7.2.4
 # STRATA_EXECV=1: setup.py replaces itself with the server, so the server is PID 1
 # and docker stop's SIGTERM reaches it (see setup.start). Normal Linux starts, which
 # don't set it, keep spawning the server as a child.
-# BACKEND=hip: the one line docker-entrypoint.sh needs to pass --backend hip to
-# setup.py - everything else about the entry point is shared, unchanged, with the
-# NVIDIA image.
+# BACKEND=hip: docker-entrypoint.sh passes --backend hip to setup.py. Setup also
+# picks hip by itself when there is no NVIDIA card; this keeps it from depending on
+# that detection. Everything else about the entry point is shared with the NVIDIA image.
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 LANG=C.UTF-8 STRATA_EXECV=1 BACKEND=hip
 
 # rocm-dev is the HIP compiler and headers (hipcc, hip-dev); it does not pull in
-# hipBLAS or hipBLASLt, so those are named explicitly (docs/AMD_HIP.md's build
-# prerequisites: a HIP compiler, hipBLAS and hipBLASLt development files).
+# hipBLAS, hipBLASLt or rocBLAS, so those are named explicitly (docs/AMD_HIP.md's build
+# prerequisites; rocBLAS is the gfx103x prompt path's solution table).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential ca-certificates curl git libatomic1 libgomp1 \
         python3 python3-pip python3-venv unzip \
-        rocm-dev hipblas-dev hipblaslt-dev \
+        rocm-dev hipblas-dev hipblaslt-dev rocblas-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/strata
 COPY . .
 
 # gfx1100 (RX 7900 XT / XTX) and gfx1201 (RX 9070 / 9070 XT / Radeon AI PRO R9700)
-# are the two validated architectures (cmake/hip_backend.cmake); a semicolon list
-# builds one binary that runs on both. gfx1101, gfx1102 and gfx1200 build with a
-# CMake warning (not validated on a real card yet); anything else is a hard error.
-ARG HIP_ARCHITECTURES=gfx1100;gfx1201
+# are validated, gfx1101 and gfx1200 run by owners, gfx1102 unvalidated
+# (cmake/hip_backend.cmake); a semicolon list builds one binary that runs on all.
+ARG HIP_ARCHITECTURES=gfx1100;gfx1101;gfx1102;gfx1200;gfx1201
 
 RUN python3 -m venv .venv \
     && .venv/bin/pip install --no-cache-dir --upgrade pip \
@@ -96,7 +98,7 @@ if not (root / "bin" / "hipcc").exists():
     raise SystemExit(f"no hipcc under {root} - is rocm-dev installed?")
 bitcode = next((p for p in (root / "lib" / "llvm" / "amdgcn" / "bitcode", root / "amdgcn" / "bitcode")
                 if p.is_dir()), root / "amdgcn" / "bitcode")
-arch = os.environ.get("HIP_ARCHITECTURES", "gfx1100;gfx1201").strip().strip('"').replace(",", ";")
+arch = os.environ.get("HIP_ARCHITECTURES", "gfx1100;gfx1101;gfx1102;gfx1200;gfx1201").strip().strip('"').replace(",", ";")
 
 # Same environment build_engine_hip() sets for a system ROCm (setup.py), so cmake
 # finds the HIP/hipBLAS/hipBLASLt CMake packages and the compiled binary finds its

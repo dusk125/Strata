@@ -142,27 +142,32 @@ The same idea, in a container (NVIDIA cards).
    Docker's default 10 s; give it time, or `docker stop` kills it (exit 137):
    `docker run --stop-timeout 60 ...`, `docker stop -t 60 <name>`, or `stop_grace_period: 60s` in Compose.
 
-**Docker (Linux, AMD/HIP, experimental):** the same idea, for the RX 7900 XT / XTX and the RX 9070 /
-9070 XT / Radeon AI PRO R9700 ([docs/AMD_HIP.md](AMD_HIP.md)). One GPU, no images, no calibration.
+**Docker (Linux, AMD/HIP, experimental):** the same idea, for the AMD cards setup supports
+([AMD_HIP.md](AMD_HIP.md)): validated on the RX 7900 XT / XTX and the RX 9070 / 9070 XT / Radeon AI PRO
+R9700, run by owners on the RX 7800 XT / 7700 XT and the RX 9060 XT. No calibration; images only through
+the CPU encoder.
 
 1. Host: Docker and the kernel's **amdgpu driver** - no ROCm install needed, the image brings its own.
 2. Build (this compiles the engine into the image with `-DSTRATA_ENABLE_HIP=ON -DSTRATA_ENABLE_CUDA=OFF`,
-   so the container never compiles):
+   so the container never compiles it):
    `docker build -f Dockerfile.amd -t strata-amd .`
-   `docker build -f Dockerfile.amd -t strata-amd --build-arg HIP_ARCHITECTURES=gfx1100 .` builds for the
-   RX 7900 XT/XTX only (faster); `gfx1201` for the RX 9070 / 9070 XT / Radeon AI PRO R9700 only. The
-   default, `gfx1100;gfx1201`, is one binary covering both validated cards.
-3. Run (the container needs the render nodes and the memory lock the engine uses):
-   `docker run --rm --device /dev/kfd --device /dev/dri --group-add video -p 8080:8080 --ulimit memlock=-1 -v strata-data:/data strata-amd`
+   The default, `gfx1100;gfx1101;gfx1102;gfx1200;gfx1201`, is one binary for every RX 7000 and RX 9000
+   card above. `--build-arg HIP_ARCHITECTURES=gfx1100` builds for the RX 7900 XT/XTX only (faster),
+   `gfx1201` for the RX 9070 / 9070 XT / R9700 only. The unvalidated RX 6800 / 6900 (`gfx1030`),
+   RX 6700 XT (`gfx1031`) and Strix Halo (`gfx1151`, [STRIX_HALO.md](STRIX_HALO.md)) are built only
+   when named this way.
+3. Run (the container needs the GPU device nodes, and the engine needs to lock memory):
+   `docker run --rm --device /dev/kfd --device /dev/dri --group-add video --group-add render --ipc=host -p 8080:8080 --ulimit memlock=-1 --ulimit core=0 -v strata-data:/data strata-amd`
 
-   The same setup env vars as the NVIDIA image apply - `MODEL`, `FAMILY`, `CONTEXT`, `KV`, `LOW_RAM`,
-   `HOST`, `PORT`, `API_KEY`, `REINSTALL` - except `VISION` (the image encoder is NVIDIA-only; setup
-   turns it off itself if asked) and `GPUS`/`LAYER_SPLIT` (splitting one model across several cards is
-   NVIDIA-only for now). `-e GPU=0` picks one card, numbered the way HIP numbers them (the kernel's KFD
-   topology order, not necessarily `nvidia-smi`'s order - irrelevant here since there is no NVIDIA
-   card); `-e ROCR_VISIBLE_DEVICES=0` or `-e HIP_VISIBLE_DEVICES=0` also works, the way it does outside
-   a container. The server listens on `0.0.0.0:8080` by default; set `-e API_KEY=<secret>` before
-   exposing the port to a network.
+   `--ulimit core=0` matters: if the watchdog aborts the engine, the core dump is as large as the
+   engine's memory (about 37 GB on one report) and can fill the disk.
+   The same setup env vars as the NVIDIA image apply, with two differences. `VISION=cpu` gives images
+   through the CPU encoder (`VISION=yes`, the GPU encoder, is NVIDIA-only), and setup compiles that
+   encoder on the first start. `GPUS`/`LAYER_SPLIT` split one model across several AMD cards
+   ([AMD_HIP.md](AMD_HIP.md)). `-e GPU=0` picks one card, numbered the way HIP numbers them (the
+   kernel's KFD topology order). `-e ROCR_VISIBLE_DEVICES=0` or `-e HIP_VISIBLE_DEVICES=0` also works,
+   the way it does outside a container. The server listens on `0.0.0.0:8080` by default; set
+   `-e API_KEY=<secret>` before exposing the port to a network.
 
 ## Older CPUs (experimental)
 

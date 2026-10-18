@@ -33,7 +33,7 @@ GGUF_DIR="${GGUF_DIR:-}"        # a mounted folder with GGUF files you already h
 RESIDENT_BUDGET_GIB="${RESIDENT_BUDGET_GIB:-}"   # UD-Q4_K_XL: GiB of experts kept in RAM (default: setup's pick)
 KV_STREAMING="${KV_STREAMING:-}" # auto | on | off; empty: setup.py's own default (auto)
 CONFIG="${CONFIG:-}"            # a config file to start with (wins over MODEL's /data/config/strata-<model>.json)
-BACKEND="${BACKEND:-}"          # cuda (default, unset) | hip; the AMD image sets this itself (docs/AMD_HIP.md)
+BACKEND="${BACKEND:-}"          # cuda | hip; unset: setup's pick (hip without an NVIDIA card); the AMD image sets hip
 
 # setup.py starts the newest strata-*.json it finds, so link in exactly the one
 # this family and model were set up with. The config is the recorded output of
