@@ -52,10 +52,9 @@ FROM rocm/dev-ubuntu-24.04:7.2.4
 # STRATA_EXECV=1: setup.py replaces itself with the server, so the server is PID 1
 # and docker stop's SIGTERM reaches it (see setup.start). Normal Linux starts, which
 # don't set it, keep spawning the server as a child.
-# BACKEND=hip: docker-entrypoint.sh passes --backend hip to setup.py. Setup also
-# picks hip by itself when there is no NVIDIA card; this keeps it from depending on
-# that detection. Everything else about the entry point is shared with the NVIDIA image.
-ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 LANG=C.UTF-8 STRATA_EXECV=1 BACKEND=hip
+# The entry point is the NVIDIA image's, unchanged: with no NVIDIA card in the
+# container, setup.py picks the HIP backend by itself.
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 LANG=C.UTF-8 STRATA_EXECV=1
 
 # rocm-dev is the HIP compiler and headers (hipcc, hip-dev); it does not pull in
 # hipBLAS, hipBLASLt or rocBLAS, so those are named explicitly (docs/AMD_HIP.md's build
